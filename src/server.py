@@ -145,6 +145,7 @@ class AppSettings:
     max_total_text_chars: int = 80_000
     codex_request_timeout_seconds: int = 180
     queue_wait_seconds: float = 0.0
+    max_concurrent_codex_runs: int = 1
     dashboard_enabled: bool = True
 
     def __post_init__(self) -> None:
@@ -156,6 +157,7 @@ class AppSettings:
         self.max_total_text_chars = min(max(int(self.max_total_text_chars), 1), 500_000)
         self.codex_request_timeout_seconds = min(max(int(self.codex_request_timeout_seconds), 5), 900)
         self.queue_wait_seconds = min(max(float(self.queue_wait_seconds), 0.0), 5.0)
+        self.max_concurrent_codex_runs = min(max(int(self.max_concurrent_codex_runs), 1), 2)
 
     @classmethod
     def from_env(cls) -> "AppSettings":
@@ -175,6 +177,7 @@ class AppSettings:
             max_total_text_chars=int(os.environ.get("MAX_TOTAL_TEXT_CHARS", "80000")),
             codex_request_timeout_seconds=int(os.environ.get("CODEX_REQUEST_TIMEOUT_SECONDS", "180")),
             queue_wait_seconds=float(os.environ.get("QUEUE_WAIT_SECONDS", "0")),
+            max_concurrent_codex_runs=int(os.environ.get("MAX_CONCURRENT_CODEX_RUNS", "1")),
             dashboard_enabled=os.environ.get("DASHBOARD_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"},
         )
 
@@ -340,32 +343,31 @@ def summarize_dashboard_events(events: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-async def execute_single_flight(app: FastAPI, settings: AppSettings, prompt: str) -> str:
-    lock: asyncio.Lock = app.state.execution_lock
+def wrapper_busy_error() -> APIError:
+    return APIError(
+        429,
+        "Another Codex execution is already running",
+        "rate_limit_error",
+        code="wrapper_busy",
+        headers={"Retry-After": "3"},
+    )
+
+
+async def execute_with_admission(app: FastAPI, settings: AppSettings, prompt: str) -> str:
+    semaphore: asyncio.Semaphore = app.state.execution_semaphore
     acquired = False
-    if lock.locked():
+    if semaphore.locked():
         if settings.queue_wait_seconds == 0:
-            raise APIError(
-                429,
-                "Another Codex execution is already running",
-                "rate_limit_error",
-                code="wrapper_busy",
-                headers={"Retry-After": "3"},
-            )
+            raise wrapper_busy_error()
         try:
-            await asyncio.wait_for(lock.acquire(), timeout=settings.queue_wait_seconds)
+            await asyncio.wait_for(semaphore.acquire(), timeout=settings.queue_wait_seconds)
             acquired = True
         except asyncio.TimeoutError as exc:
-            raise APIError(
-                429,
-                "Another Codex execution is already running",
-                "rate_limit_error",
-                code="wrapper_busy",
-                headers={"Retry-After": "3"},
-            ) from exc
+            raise wrapper_busy_error() from exc
     else:
-        await lock.acquire()
+        await semaphore.acquire()
         acquired = True
+    app.state.active_executions += 1
     try:
         return await app.state.runner.execute(
             prompt,
@@ -376,7 +378,8 @@ async def execute_single_flight(app: FastAPI, settings: AppSettings, prompt: str
         raise map_runner_error(exc) from exc
     finally:
         if acquired:
-            lock.release()
+            app.state.active_executions = max(0, app.state.active_executions - 1)
+            semaphore.release()
 
 
 def create_app(settings: AppSettings | None = None, runner: Any | None = None) -> FastAPI:
@@ -385,7 +388,8 @@ def create_app(settings: AppSettings | None = None, runner: Any | None = None) -
     app = FastAPI(title="codex-cli-provider", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.settings = settings
     app.state.runner = runner
-    app.state.execution_lock = asyncio.Lock()
+    app.state.execution_semaphore = asyncio.Semaphore(settings.max_concurrent_codex_runs)
+    app.state.active_executions = 0
     app.state.dashboard_events = deque(maxlen=DASHBOARD_EVENT_LIMIT)
 
     if settings.cors_allowed_origins:
@@ -475,6 +479,7 @@ def create_app(settings: AppSettings | None = None, runner: Any | None = None) -
         require_dashboard_enabled()
         status = await runner.status()
         events = list(app.state.dashboard_events)
+        active_executions = int(app.state.active_executions)
         return dashboard_json({
             "time": now_iso(),
             "provider": {
@@ -485,13 +490,17 @@ def create_app(settings: AppSettings | None = None, runner: Any | None = None) -
                 },
                 "runner": {
                     "ready": bool(status.get("ready")),
-                    "busy": bool(app.state.execution_lock.locked()),
+                    "busy": active_executions >= settings.max_concurrent_codex_runs,
+                    "activeRuns": active_executions,
+                    "maxConcurrentRuns": settings.max_concurrent_codex_runs,
                 },
                 "limits": {
                     "maxBodyBytes": settings.max_body_bytes,
                     "maxMessages": settings.max_messages,
                     "maxTotalTextChars": settings.max_total_text_chars,
                     "requestTimeoutSeconds": settings.codex_request_timeout_seconds,
+                    "queueWaitSeconds": settings.queue_wait_seconds,
+                    "maxConcurrentRuns": settings.max_concurrent_codex_runs,
                 },
             },
             "events": summarize_dashboard_events(events),
@@ -535,7 +544,7 @@ def create_app(settings: AppSettings | None = None, runner: Any | None = None) -
         prompt = build_codex_prompt(messages)
         start = time.perf_counter()
         try:
-            text = await execute_single_flight(app, settings, prompt)
+            text = await execute_with_admission(app, settings, prompt)
         finally:
             elapsed_ms = int((time.perf_counter() - start) * 1000)
             LOGGER.info("request complete route=/v1/chat/completions elapsed_ms=%s model=%s", elapsed_ms, MODEL_ALIAS)

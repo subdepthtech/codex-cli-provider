@@ -1,0 +1,59 @@
+name: deploy-pi-node2
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Candidate or release image tag to deploy, for example codex-cli-provider-dev-branch-abcdef123456."
+        required: true
+        type: string
+      chat_smoke:
+        description: "Run one live Codex-backed chat completion after deploy."
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-pi-node2
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux, arm64, pi-node2]
+    environment: pi-node2
+    timeout-minutes: 20
+
+    steps:
+      - name: Update fixed deploy checkout
+        env:
+          DEPLOY_DIR: ${{ vars.PI_NODE2_DEPLOY_DIR || '/home/pi/projects/codex-cli-provider' }}
+        run: |
+          set -eu
+          mkdir -p "$(dirname "$DEPLOY_DIR")"
+          if [ ! -d "$DEPLOY_DIR/.git" ]; then
+            git clone "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$DEPLOY_DIR"
+          fi
+          cd "$DEPLOY_DIR"
+          git fetch --prune origin "$GITHUB_REF"
+          git checkout --force "$GITHUB_SHA"
+
+      - name: Deploy and smoke test
+        env:
+          DEPLOY_DIR: ${{ vars.PI_NODE2_DEPLOY_DIR || '/home/pi/projects/codex-cli-provider' }}
+          IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          CHAT_SMOKE: ${{ inputs.chat_smoke }}
+        run: |
+          set -eu
+          chat_arg=""
+          if [ "$CHAT_SMOKE" = "true" ]; then
+            chat_arg="--chat-smoke"
+          fi
+          cd "$DEPLOY_DIR"
+          python3 scripts/deploy_compose_image.py \
+            --image-repository "$IMAGE_REPOSITORY" \
+            --image-tag "$IMAGE_TAG" \
+            $chat_arg
