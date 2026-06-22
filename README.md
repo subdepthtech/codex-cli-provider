@@ -35,7 +35,8 @@ project.
 - `GET /v1/models` with the local model alias `codex-cli-default`.
 - `POST /v1/chat/completions` for text-only chat messages.
 - Non-streaming responses and final-only SSE streaming.
-- One active Codex execution at a time, with an optional short local wait queue.
+- One active Codex execution by default, with an optional second local execution
+  slot and short local wait queue.
 - A local operator dashboard at `http://127.0.0.1:8320/dashboard/`.
 
 ## What It Does Not Provide
@@ -228,8 +229,11 @@ For Obsidian LLM Wiki, use:
 required for the inspected OpenAI-compatible provider path.
 
 If near-simultaneous local requests collide, set `QUEUE_WAIT_SECONDS=2` or `3`
-in `.env` and restart the wrapper. The wrapper still permits only one active
-Codex run.
+in `.env` and restart the wrapper. If the collisions are confirmed
+`wrapper_busy` responses rather than upstream rate limits, you can also set
+`MAX_CONCURRENT_CODEX_RUNS=2` to permit a second local Codex CLI execution.
+Keep it at `1` if the signed-in Codex account starts returning
+`upstream_rate_limit`.
 
 ## Configuration
 
@@ -245,6 +249,7 @@ Most configuration lives in `.env`, copied from `.env.example`.
 | `MAX_MESSAGES` | Maximum number of chat messages. |
 | `MAX_TOTAL_TEXT_CHARS` | Maximum total text across messages. |
 | `QUEUE_WAIT_SECONDS` | Short local wait queue for bursty clients. Values are clamped to `0-5`. |
+| `MAX_CONCURRENT_CODEX_RUNS` | Number of provider-side Codex executions allowed at once. Values are clamped to `1-2`; default `1`. |
 | `CORS_ALLOWED_ORIGINS` | Optional comma-separated explicit origins. Requests without `Origin` are allowed. |
 | `LOG_LEVEL` | Python wrapper log level. |
 
@@ -360,11 +365,11 @@ docker compose restart
   `500000`, and restart.
 - `413` with `Request body too large`: increase `MAX_REQUEST_BODY_BYTES`, up to
   `2000000`, and restart.
-- `429` with `code: "wrapper_busy"`: wait for the active request to finish,
-  reduce client concurrency to `1`, increase batch delay, or set a small
-  `QUEUE_WAIT_SECONDS`.
+- `429` with `code: "wrapper_busy"`: wait for active requests to finish,
+  reduce client concurrency to `1`, increase batch delay, set a small
+  `QUEUE_WAIT_SECONDS`, or opt into `MAX_CONCURRENT_CODEX_RUNS=2`.
 - `429` with `code: "upstream_rate_limit"`: the signed-in upstream account is
-  rate limited; wait and retry later.
+  rate limited; wait and retry later, and keep `MAX_CONCURRENT_CODEX_RUNS=1`.
 - `502` or `/healthz` returning `503`: check
   `docker exec -it codex-cli-provider codex login status`, then re-run device
   login if needed.

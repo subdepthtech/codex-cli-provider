@@ -78,7 +78,7 @@ function renderStatus(data) {
 
   setText("#runner-value", runner.busy ? "Busy" : runner.ready ? "Ready" : "Unready");
   setClass("#runner-value", runner.ready && !runner.busy ? "ok-text" : runner.busy ? "warn-text" : "bad-text");
-  setText("#runner-detail", data.provider.modelAlias);
+  setText("#runner-detail", `${runner.activeRuns}/${runner.maxConcurrentRuns} active - ${data.provider.modelAlias}`);
 
   setText("#event-value", String(events.total));
   setText("#event-detail", `${events.errors} errors, p95 ${events.p95DurationMs ?? "-"} ms`);
@@ -86,6 +86,8 @@ function renderStatus(data) {
   setText("#limit-body", formatBytes(limits.maxBodyBytes));
   setText("#limit-text", `${limits.maxTotalTextChars.toLocaleString()} chars`);
   setText("#limit-timeout", `${limits.requestTimeoutSeconds}s`);
+  setText("#limit-concurrency", `${limits.maxConcurrentRuns} run${limits.maxConcurrentRuns === 1 ? "" : "s"}`);
+  setText("#limit-queue", `${limits.queueWaitSeconds}s`);
   setText("#last-refresh", `Updated ${new Date().toLocaleTimeString()}`);
 }
 

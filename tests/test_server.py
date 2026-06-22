@@ -90,6 +90,14 @@ async def request(app, method, url, token=TEST_SECRET, **kwargs):
         return await client.request(method, url, headers=headers, **kwargs)
 
 
+async def wait_for_prompt_count(runner, count):
+    for _ in range(50):
+        if len(runner.prompts) >= count:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"expected {count} prompts, got {len(runner.prompts)}")
+
+
 def test_default_app_uses_local_runner():
     app = create_app(settings())
     assert isinstance(app.state.runner, LocalCodexRunner)
@@ -99,6 +107,15 @@ def test_app_settings_do_not_require_runner_socket():
     configured = AppSettings(proxy_api_key=TEST_SECRET)
     assert not hasattr(configured, "runner_socket")
     assert not hasattr(configured, "runner_api_key")
+
+
+def test_admission_settings_are_clamped():
+    high = AppSettings(proxy_api_key=TEST_SECRET, queue_wait_seconds=99, max_concurrent_codex_runs=99)
+    low = AppSettings(proxy_api_key=TEST_SECRET, queue_wait_seconds=-1, max_concurrent_codex_runs=-1)
+    assert high.queue_wait_seconds == 5.0
+    assert high.max_concurrent_codex_runs == 2
+    assert low.queue_wait_seconds == 0.0
+    assert low.max_concurrent_codex_runs == 1
 
 
 @pytest.mark.asyncio
@@ -147,6 +164,19 @@ async def test_dashboard_status_is_sanitized_and_unauthenticated():
     assert "authGate" not in body["provider"]
     assert "sensitive local detail" not in response.text
     assert TEST_SECRET not in response.text
+
+
+@pytest.mark.asyncio
+async def test_dashboard_status_reports_admission_limits():
+    app = create_app(settings(max_concurrent_codex_runs=2, queue_wait_seconds=3), FakeRunner())
+    response = await request(app, "GET", "/dashboard/api/status", token=None)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"]["runner"]["activeRuns"] == 0
+    assert body["provider"]["runner"]["maxConcurrentRuns"] == 2
+    assert body["provider"]["runner"]["busy"] is False
+    assert body["provider"]["limits"]["queueWaitSeconds"] == 3
+    assert body["provider"]["limits"]["maxConcurrentRuns"] == 2
 
 
 @pytest.mark.asyncio
@@ -475,6 +505,47 @@ async def test_single_flight_queue_timeout_returns_wrapper_busy_429():
     assert second.headers["retry-after"] == "3"
     assert second.json()["error"]["type"] == "rate_limit_error"
     assert second.json()["error"]["code"] == "wrapper_busy"
+
+
+@pytest.mark.asyncio
+async def test_two_execution_slots_allow_two_parallel_requests():
+    runner = BlockingRunner()
+    app = create_app(settings(max_concurrent_codex_runs=2, queue_wait_seconds=0), runner)
+    payload = {"model": "codex-cli-default", "messages": [{"role": "user", "content": "hello"}]}
+
+    first = asyncio.create_task(request(app, "POST", "/v1/chat/completions", json=payload))
+    second = asyncio.create_task(request(app, "POST", "/v1/chat/completions", json=payload))
+    await wait_for_prompt_count(runner, 2)
+
+    status = await request(app, "GET", "/dashboard/api/status", token=None)
+    assert status.json()["provider"]["runner"]["activeRuns"] == 2
+    assert status.json()["provider"]["runner"]["busy"] is True
+
+    runner.release.set()
+    first_response = await first
+    second_response = await second
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_concurrency_limit_returns_429_when_all_slots_busy():
+    runner = BlockingRunner()
+    app = create_app(settings(max_concurrent_codex_runs=2, queue_wait_seconds=0), runner)
+    payload = {"model": "codex-cli-default", "messages": [{"role": "user", "content": "hello"}]}
+
+    first = asyncio.create_task(request(app, "POST", "/v1/chat/completions", json=payload))
+    second = asyncio.create_task(request(app, "POST", "/v1/chat/completions", json=payload))
+    await wait_for_prompt_count(runner, 2)
+
+    third = await request(app, "POST", "/v1/chat/completions", json=payload)
+    runner.release.set()
+    await first
+    await second
+
+    assert third.status_code == 429
+    assert third.headers["retry-after"] == "3"
+    assert third.json()["error"]["code"] == "wrapper_busy"
 
 
 @pytest.mark.asyncio
