@@ -26,8 +26,7 @@ Do not bake credentials into the image or Compose files.
 - Docker Hub auth belongs in local Docker credential storage via `docker login`.
 - The wrapper bearer token belongs in `data/secrets/proxy_api_key`.
 - Codex/ChatGPT auth belongs in the dedicated bind-mounted `data/codex-home`.
-- Do not use or add `OPENAI_API_KEY`, `CODEX_API_KEY`, or
-  `CODEX_ACCESS_TOKEN` for this project.
+- Do not use or add `OPENAI_API_KEY` for this project.
 
 Codex login is completed inside the running container so credentials are written
 to the mounted `/root/.codex` backed by `data/codex-home`:

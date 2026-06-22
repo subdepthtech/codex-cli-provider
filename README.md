@@ -19,13 +19,10 @@ that login is allowed by the applicable OpenAI product terms and policies. This
 repository does not grant permission to power third-party integrations with a
 ChatGPT subscription.
 
-The service deliberately refuses startup when API-key environment variables are
-present:
+The service deliberately refuses startup when `OPENAI_API_KEY` is present:
 
 ```text
 OPENAI_API_KEY
-CODEX_API_KEY
-CODEX_ACCESS_TOKEN
 ```
 
 Codex authentication belongs only in the dedicated bind-mounted
@@ -170,9 +167,9 @@ Check readiness:
 curl -sS http://127.0.0.1:8320/healthz
 ```
 
-`/healthz` returns 200 only after the container sees the pinned Codex CLI, a
-dedicated ChatGPT login, and no API-key mode. It is normal for the container to
-report unhealthy before device login is complete.
+`/healthz` returns 200 only after the container sees the pinned Codex CLI and a
+dedicated ChatGPT login. It is normal for the container to report unhealthy
+before device login is complete.
 
 ## API Examples
 
@@ -292,8 +289,8 @@ docker compose -f docker-compose.image.yml up -d
 ```
 
 Docker registry authentication belongs in local Docker credential storage via
-`docker login`. Do not put Docker Hub passwords, ChatGPT/Codex credentials,
-OpenAI API keys, or Codex access tokens in Compose files.
+`docker login`. Do not put Docker Hub passwords, ChatGPT/Codex credentials, or
+OpenAI API keys in Compose files.
 
 Codex authentication still lives only in the mounted `data/codex-home`
 directory and must be completed inside the running container.
@@ -371,8 +368,7 @@ docker compose restart
 - `502` or `/healthz` returning `503`: check
   `docker exec -it codex-cli-provider codex login status`, then re-run device
   login if needed.
-- Accidental API-key detection: unset `OPENAI_API_KEY`, `CODEX_API_KEY`, and
-  `CODEX_ACCESS_TOKEN` before starting.
+- Accidental API-key detection: unset `OPENAI_API_KEY` before starting.
 - Sandbox failure: this configuration intentionally uses Codex
   `danger-full-access` inside Docker. Do not add `privileged`, `SYS_ADMIN`,
   unconfined seccomp/AppArmor, host networking, or host home mounts.

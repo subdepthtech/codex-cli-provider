@@ -573,14 +573,6 @@ def test_api_key_environment_causes_startup_refusal(monkeypatch):
         AppSettings.from_env()
 
 
-@pytest.mark.parametrize("name", ["CODEX_API_KEY", "CODEX_ACCESS_TOKEN"])
-def test_other_api_key_environments_cause_startup_refusal(monkeypatch, name):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setenv(name, "not-allowed")
-    with pytest.raises(RuntimeError):
-        AppSettings.from_env()
-
-
 def test_weak_proxy_secret_causes_startup_refusal(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("PROXY_API_KEY", "change-me")

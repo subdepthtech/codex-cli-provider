@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 
-FORBIDDEN_ENV = {"OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"}
+FORBIDDEN_ENV = {"OPENAI_API_KEY"}
 
 
 def fail(message: str) -> None:
@@ -118,7 +118,7 @@ def main() -> None:
     env = service.get("environment") or {}
     env_names = set(env if isinstance(env, dict) else [])
     if FORBIDDEN_ENV.intersection(env_names):
-        fail("API-key environment variables must not be set in compose")
+        fail("OPENAI_API_KEY must not be set in compose")
 
     tmpfs = {str(item).split(":", 1)[0] for item in as_list(service.get("tmpfs"))}
     if "/tmp" not in tmpfs:

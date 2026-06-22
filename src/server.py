@@ -17,7 +17,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from src.codex_runner import (
-    FORBIDDEN_ENV_VARS,
     LocalCodexRunner,
     RunnerError,
     build_child_env,

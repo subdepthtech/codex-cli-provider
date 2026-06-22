@@ -15,7 +15,7 @@ DEFAULT_CODEX_HOME = "/root/.codex"
 DEFAULT_WORK_DIR = "/workspace"
 STDERR_LIMIT = 64_000
 STDOUT_LIMIT = 256_000
-FORBIDDEN_ENV_VARS = ("OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN")
+FORBIDDEN_ENV_VARS = ("OPENAI_API_KEY",)
 FORBIDDEN_EVENT_FRAGMENTS = (
     "exec_command",
     "shell",
@@ -59,7 +59,7 @@ class RunnerSettings:
 def fail_if_api_key_environment() -> None:
     present = [name for name in FORBIDDEN_ENV_VARS if os.environ.get(name)]
     if present:
-        raise RuntimeError("API-key or access-token environment variables are not allowed")
+        raise RuntimeError("OPENAI_API_KEY is not allowed")
 
 
 def build_child_env(codex_home: str, child_home: str) -> dict[str, str]:

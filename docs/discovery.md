@@ -61,8 +61,7 @@ The official repository README says each archive contains a single platform-name
 - Browser login can fail in headless environments; OpenAI docs recommend device-code auth first.
 - File-backed ChatGPT sessions refresh tokens automatically during use, so the dedicated `CODEX_HOME` must be writable if token refresh is required.
 - Official docs describe copying `auth.json` for headless/CI workflows, but this project must not copy a normal user `~/.codex`; any login flow must use a dedicated project auth home.
-- `CODEX_API_KEY` is supported by `codex exec`; this project must refuse API-key mode.
-- `CODEX_ACCESS_TOKEN` is documented for trusted automation but must not be used by this adapter.
+- This project uses only device-based ChatGPT login in the dedicated project auth home.
 
 ## Tool And Persistence Controls
 
