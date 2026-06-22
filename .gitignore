@@ -22,6 +22,12 @@ temp/
 
 auth.json
 codex-home/
-.codex/
 sessions/
 history.jsonl
+
+# Track reviewed project-level Codex config without exposing Codex home state.
+.codex/*
+!.codex/config.toml
+!.codex/rules/
+.codex/rules/*
+!.codex/rules/*.rules

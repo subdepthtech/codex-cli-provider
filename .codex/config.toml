@@ -1,0 +1,4 @@
+# Project-local Codex config for this repository.
+#
+# Keep credentials and runtime state out of this file. Codex/ChatGPT auth for
+# the provider container belongs in data/codex-home, mounted at /root/.codex.

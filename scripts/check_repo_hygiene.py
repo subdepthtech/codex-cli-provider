@@ -5,12 +5,15 @@ import sys
 from pathlib import Path
 
 
+ALLOWED_CODEX_PATHS = {
+    ".codex/config.toml",
+}
+
 FORBIDDEN_STAGEABLE_PATHS = (
     ".env",
     "data/",
     ".venv/",
     "venv/",
-    ".codex/",
     "codex-home/",
 )
 
@@ -26,6 +29,18 @@ SECRET_PATTERNS = {
     "private_key": re.compile(r"-----BEGIN (?:RSA |OPENSSH |EC |DSA |PGP )?PRIVATE KEY-----"),
     "long_bearer_literal": re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]{32,}"),
 }
+
+
+def is_allowed_codex_path(path: str) -> bool:
+    if path in ALLOWED_CODEX_PATHS:
+        return True
+
+    rules_prefix = ".codex/rules/"
+    if path.startswith(rules_prefix):
+        rule_name = path.removeprefix(rules_prefix)
+        return "/" not in rule_name and rule_name.endswith(".rules")
+
+    return False
 
 
 def fail(message: str) -> None:
@@ -53,6 +68,8 @@ def check_paths(paths: list[str]) -> None:
             fail(f"forbidden path is stageable: {path}")
         if any(normalized.startswith(prefix) for prefix in FORBIDDEN_STAGEABLE_PATHS if prefix.endswith("/")):
             fail(f"forbidden path is stageable: {path}")
+        if normalized == ".codex" or (normalized.startswith(".codex/") and not is_allowed_codex_path(normalized)):
+            fail(f"forbidden Codex state/config path is stageable: {path}")
         if Path(normalized).name in FORBIDDEN_FILENAMES:
             fail(f"forbidden credential/state filename is stageable: {path}")
 
