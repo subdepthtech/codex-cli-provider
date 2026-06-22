@@ -171,6 +171,9 @@ curl -sS http://127.0.0.1:8320/healthz
 dedicated ChatGPT login. It is normal for the container to report unhealthy
 before device login is complete.
 
+Windows users running Docker Desktop should use the PowerShell bootstrap and
+platform notes in [`docs/windows.md`](docs/windows.md).
+
 ## API Examples
 
 Load the wrapper bearer token into a shell variable:
