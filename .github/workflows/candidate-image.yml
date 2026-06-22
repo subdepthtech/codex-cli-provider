@@ -1,0 +1,124 @@
+name: candidate-image
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Optional candidate tag. Defaults to codex-cli-provider-dev-<branch>-<short-sha>."
+        required: false
+        type: string
+      platforms:
+        description: "Target image platform(s). Use linux/arm64 for pi-node2 validation."
+        required: true
+        default: linux/arm64
+        type: choice
+        options:
+          - linux/arm64
+          - linux/amd64
+          - linux/amd64,linux/arm64
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: candidate-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish-candidate-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install --requirement requirements.txt
+
+      - name: Unit tests
+        run: python -m pytest -q
+
+      - name: Syntax checks
+        run: python -m compileall -q src scripts tests
+
+      - name: Prepare throwaway local config
+        run: |
+          cp .env.example .env
+          mkdir -p data/secrets data/codex-home data/codex-work
+          python - <<'PY'
+          import pathlib
+          import secrets
+
+          pathlib.Path("data/secrets/proxy_api_key").write_text(secrets.token_urlsafe(48) + "\n", encoding="utf-8")
+          PY
+          chmod 600 .env
+          chmod 644 data/secrets/proxy_api_key
+          chmod 700 data/secrets data/codex-home data/codex-work
+
+      - name: Repo hygiene checks
+        run: python scripts/check_repo_hygiene.py
+
+      - name: Compose security checks
+        run: python scripts/check_compose_security.py
+
+      - name: Image Compose security checks
+        env:
+          COMPOSE_FILE: docker-compose.image.yml
+          CODEX_CLI_PROVIDER_IMAGE: ghcr.io/${{ github.repository }}:codex-cli-provider-dev-compose-check
+        run: python scripts/check_compose_security.py
+
+      - name: Resolve candidate tag
+        id: candidate
+        env:
+          REQUESTED_IMAGE_TAG: ${{ inputs.image_tag }}
+        run: >
+          python scripts/image_tags.py candidate
+          --ref-name "$GITHUB_REF_NAME"
+          --sha "$GITHUB_SHA"
+          --requested "$REQUESTED_IMAGE_TAG"
+          --github-output
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish candidate image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: ${{ inputs.platforms }}
+          push: true
+          tags: ghcr.io/${{ github.repository }}:${{ steps.candidate.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.candidate.outputs.tag }}
+
+      - name: Inspect candidate image
+        run: docker buildx imagetools inspect ghcr.io/${{ github.repository }}:${{ steps.candidate.outputs.tag }}
+
+      - name: Print pi-node2 pull command
+        run: |
+          echo "Candidate image:"
+          echo "ghcr.io/${{ github.repository }}:${{ steps.candidate.outputs.tag }}"
+          echo
+          echo "pi-node2 command:"
+          echo "CODEX_CLI_PROVIDER_IMAGE=ghcr.io/${{ github.repository }}:${{ steps.candidate.outputs.tag }} docker compose -f docker-compose.image.yml up -d"

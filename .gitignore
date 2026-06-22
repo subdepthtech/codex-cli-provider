@@ -13,6 +13,7 @@ data/
 logs/
 tmp/
 temp/
+handoff.md
 
 .DS_Store
 .idea/

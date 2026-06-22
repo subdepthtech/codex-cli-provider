@@ -37,7 +37,7 @@ jobs:
         run: python -m pytest -q
 
       - name: Syntax checks
-        run: python -m py_compile src/server.py scripts/check_compose_security.py scripts/check_repo_hygiene.py tests/test_server.py
+        run: python -m compileall -q src scripts tests
 
       - name: Prepare throwaway local config
         run: |
@@ -60,6 +60,12 @@ jobs:
         run: docker compose config
 
       - name: Compose security checks
+        run: python scripts/check_compose_security.py
+
+      - name: Image Compose security checks
+        env:
+          COMPOSE_FILE: docker-compose.image.yml
+          CODEX_CLI_PROVIDER_IMAGE: registry.example.com/your-org/codex-cli-provider:codex-cli-provider-0.1.2
         run: python scripts/check_compose_security.py
 
       - name: Docker build

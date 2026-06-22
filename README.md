@@ -300,6 +300,107 @@ OpenAI API keys in Compose files.
 Codex authentication still lives only in the mounted `data/codex-home`
 directory and must be completed inside the running container.
 
+## Pre-Merge pi-node2 Image Test
+
+Use the `candidate-image` GitHub Actions workflow to publish a disposable image
+from a branch before merging it. The default target is `linux/arm64` for
+`pi-node2` validation, and the generated tag looks like:
+
+```text
+codex-cli-provider-dev-branch-name-abcdef123456
+```
+
+Run the workflow from the branch you want to test. Leave `image_tag` empty
+unless you need a stable candidate tag; custom candidate tags must start with
+`codex-cli-provider-dev-`. Do not use `latest`.
+
+On `pi-node2`, keep using the image-only Compose file and the dedicated local
+`data/codex-home` auth mount:
+
+```bash
+docker login ghcr.io
+export CODEX_CLI_PROVIDER_IMAGE=ghcr.io/subdepthtech/codex-cli-provider:codex-cli-provider-dev-branch-name-abcdef123456
+docker compose -f docker-compose.image.yml pull
+docker compose -f docker-compose.image.yml up -d
+python3 scripts/smoke_test_provider.py
+```
+
+To verify one real Codex-backed request after the container is healthy and
+logged in, run:
+
+```bash
+python3 scripts/smoke_test_provider.py --chat
+```
+
+The non-chat smoke test checks `/healthz`, confirms `/v1/models` rejects
+unauthenticated callers, and confirms the authenticated model list includes
+`codex-cli-default`. The `--chat` check sends one live upstream request through
+the signed-in Codex CLI account.
+
+After the `pi-node2` smoke test passes, merge the branch and publish the release
+image. The release workflow publishes versioned tags like
+`codex-cli-provider-0.1.2` from either a manual dispatch or a Git tag such as
+`v0.1.2`.
+
+## Automated pi-node2 Deployment
+
+The `deploy-pi-node2` GitHub Actions workflow deploys an already-published
+candidate or release image on a self-hosted runner installed on `pi-node2`.
+It intentionally does not use SSH keys or GitHub-hosted runner secrets.
+
+One-time `pi-node2` setup:
+
+```bash
+mkdir -p ~/projects
+git clone https://github.com/subdepthtech/codex-cli-provider.git ~/projects/codex-cli-provider
+cd ~/projects/codex-cli-provider
+cp .env.example .env
+mkdir -p data/codex-home data/codex-work data/secrets
+python3 - <<'PY'
+import pathlib, secrets
+path = pathlib.Path("data/secrets/proxy_api_key")
+path.write_text(secrets.token_urlsafe(48) + "\n")
+PY
+chmod 600 .env data/secrets/proxy_api_key
+chmod 700 data/codex-home data/codex-work data/secrets
+docker login ghcr.io
+```
+
+The deploy smoke test expects the dedicated `data/codex-home` mount on
+`pi-node2` to already contain a valid Codex login. After starting the container
+with a candidate or release image for the first time, complete device login
+inside that container:
+
+```bash
+docker exec -it codex-cli-provider \
+  codex login --device-auth \
+  -c forced_login_method='"chatgpt"' \
+  -c cli_auth_credentials_store='"file"'
+```
+
+Install the GitHub self-hosted runner on `pi-node2` with labels including
+`self-hosted`, `linux`, `arm64`, and `pi-node2`. In GitHub, create an
+environment named `pi-node2` and require manual approval before deployment.
+For a public repository, do not let untrusted pull requests run jobs on this
+runner.
+
+Run the `deploy-pi-node2` workflow from a trusted branch, preferably `main`, and
+pass the exact image tag printed by `candidate-image`. The workflow uses
+`/home/pi/projects/codex-cli-provider` by default; set the repository or
+environment variable `PI_NODE2_DEPLOY_DIR` to override that path.
+
+The deploy workflow updates the fixed checkout, validates the image tag, runs
+the image-only Compose security check, pulls the image, restarts the service,
+and runs `scripts/smoke_test_provider.py`. Enable `chat_smoke` to run one live
+Codex-backed request after restart.
+
+## Host Reimage Runbook
+
+For rebuilding the homelab `pi-node2` host, use
+[`docs/pi-node2-reimage.md`](docs/pi-node2-reimage.md). Keep host-specific
+values, backup locations, runner registration details, and credential recovery
+notes in the ignored top-level `handoff.md` file, not in tracked documentation.
+
 ## Verification
 
 Run repository checks without live credentials:
@@ -316,9 +417,8 @@ PYTHONPATH=. .venv/bin/pytest -q
 Live checks require a running container and the dedicated Codex login:
 
 ```bash
-PROXY_API_KEY="$(cat data/secrets/proxy_api_key)"
-curl -f http://127.0.0.1:8320/healthz
-curl -f -H "Authorization: Bearer $PROXY_API_KEY" http://127.0.0.1:8320/v1/models
+python3 scripts/smoke_test_provider.py
+python3 scripts/smoke_test_provider.py --chat
 ```
 
 Do not print or inspect `data/codex-home/auth.json`.
