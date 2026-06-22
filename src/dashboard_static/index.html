@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Codex Provider Dashboard</title>
+    <link rel="stylesheet" href="/dashboard/style.css">
+  </head>
+  <body>
+    <header class="shell-header">
+      <div>
+        <p class="eyebrow">Operator Dashboard</p>
+        <h1>Codex Provider</h1>
+      </div>
+      <div class="toolbar">
+        <span id="last-refresh" class="muted">Waiting</span>
+        <button id="refresh" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section class="metric-grid" aria-label="Provider overview">
+        <article class="metric-card">
+          <span class="metric-label">Health</span>
+          <strong id="health-value">-</strong>
+          <span id="health-detail" class="metric-detail">Checking</span>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">Auth Gate</span>
+          <strong id="auth-value">-</strong>
+          <span id="auth-detail" class="metric-detail">Models require bearer auth</span>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">Runner</span>
+          <strong id="runner-value">-</strong>
+          <span id="runner-detail" class="metric-detail">Single-flight executor</span>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">Events</span>
+          <strong id="event-value">-</strong>
+          <span id="event-detail" class="metric-detail">Recent sanitized rows</span>
+        </article>
+      </section>
+
+      <section class="panel-grid" aria-label="Provider checks">
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Bearer Check</h2>
+            <span id="models-status" class="status neutral">Idle</span>
+          </div>
+          <form id="token-form" class="token-form" autocomplete="off">
+            <label for="token-input">Bearer token</label>
+            <div class="input-row">
+              <input id="token-input" name="token" type="password" autocomplete="off" spellcheck="false">
+              <button type="submit">Check Models</button>
+            </div>
+          </form>
+          <p id="models-result" class="result muted">Token stays in this browser tab.</p>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Fixed Probe</h2>
+            <span id="probe-status" class="status neutral">Idle</span>
+          </div>
+          <p class="compact">Runs one fixed `codex-cli-default` completion with `max_tokens: 20`.</p>
+          <button id="probe-button" type="button">Run Probe</button>
+          <p id="probe-result" class="result muted">Requires the bearer token above.</p>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Runtime Limits</h2>
+            <span id="limits-status" class="status neutral">Loaded</span>
+          </div>
+          <dl class="detail-list">
+            <div>
+              <dt>Body</dt>
+              <dd id="limit-body">-</dd>
+            </div>
+            <div>
+              <dt>Text</dt>
+              <dd id="limit-text">-</dd>
+            </div>
+            <div>
+              <dt>Timeout</dt>
+              <dd id="limit-timeout">-</dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Device Login</h2>
+            <span class="status warn">Manual</span>
+          </div>
+          <pre class="command">docker exec -it codex-cli-provider \
+  codex login --device-auth \
+  -c forced_login_method='"chatgpt"' \
+  -c cli_auth_credentials_store='"file"'</pre>
+        </article>
+      </section>
+
+      <section class="panel table-panel" aria-label="Recent provider events">
+        <div class="panel-header">
+          <h2>Recent Events</h2>
+          <span id="event-summary" class="muted">-</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Time</th>
+                <th scope="col">Method</th>
+                <th scope="col">Path</th>
+                <th scope="col">Status</th>
+                <th scope="col">Duration</th>
+              </tr>
+            </thead>
+            <tbody id="event-table">
+              <tr>
+                <td colspan="5" class="empty">No events yet</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="session-line" aria-label="Session messages">
+        <ol id="session-events" aria-live="polite"></ol>
+      </section>
+    </main>
+
+    <script src="/dashboard/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,51 @@
+services:
+  codex-cli-provider:
+    image: ${CODEX_CLI_PROVIDER_IMAGE:?Set CODEX_CLI_PROVIDER_IMAGE to a published image tag, for example registry.example.com/your-org/codex-cli-provider:codex-cli-provider-0.1.2}
+    container_name: codex-cli-provider
+    pull_policy: always
+    env_file:
+      - .env
+    environment:
+      PROXY_API_KEY_FILE: /run/secrets/proxy_api_key
+      HOME: /root
+      CODEX_HOME: /root/.codex
+      CODEX_WORK_DIR: /workspace
+    ports:
+      - "127.0.0.1:8320:8320"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,size=256m,mode=1777
+    volumes:
+      - type: bind
+        source: ./data/codex-home
+        target: /root/.codex
+        read_only: false
+      - type: bind
+        source: ./data/codex-work
+        target: /workspace
+        read_only: false
+      - type: bind
+        source: ./data/secrets/proxy_api_key
+        target: /run/secrets/proxy_api_key
+        read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: "1.0"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8320/healthz', timeout=2).read()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

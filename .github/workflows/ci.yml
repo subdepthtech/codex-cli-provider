@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --requirement requirements.txt
+
+      - name: Unit tests
+        run: python -m pytest -q
+
+      - name: Syntax checks
+        run: python -m py_compile src/server.py scripts/check_compose_security.py scripts/check_repo_hygiene.py tests/test_server.py
+
+      - name: Prepare throwaway local config
+        run: |
+          cp .env.example .env
+          mkdir -p data/secrets data/codex-home data/codex-work
+          python - <<'PY'
+          import pathlib
+          import secrets
+
+          pathlib.Path("data/secrets/proxy_api_key").write_text(secrets.token_urlsafe(48) + "\n", encoding="utf-8")
+          PY
+          chmod 600 .env
+          chmod 644 data/secrets/proxy_api_key
+          chmod 700 data/secrets data/codex-home data/codex-work
+
+      - name: Repo hygiene checks
+        run: python scripts/check_repo_hygiene.py
+
+      - name: Compose render
+        run: docker compose config
+
+      - name: Compose security checks
+        run: python scripts/check_compose_security.py
+
+      - name: Docker build
+        run: docker compose build
